@@ -1,0 +1,6 @@
+.Rproj.user
+.Rhistory
+.Rdata
+.Ruserdata
+TP1/notebooks/*.html
+TP1/notebooks/*_files/

@@ -1,0 +1,171 @@
+## 0. Carga de paquetes
+
+```{r}
+# Cargo los paquetes necesarios.
+library(tidyverse)
+library(janitor)
+library(readr)
+```
+
+```{r}
+# Defino una función para leer archivos csv, normalizar los nombres de las columnas y mostrar esos nombres en pantalla.
+cargar_datos <- function(ruta, skip = 0) {
+  datos <- read_csv(
+    ruta,
+    skip = skip,
+    show_col_types = FALSE,
+    na = c("", "NA", "..")
+  ) |>
+    clean_names()
+  
+  print(names(datos))
+  return(datos)
+}
+```
+
+## 1. Normalización
+
+```{r}
+# Leo la tabla de metadatos de países usando la función definida anteriormente
+# Después elimino columnas vacías auxiliares
+metadata_raw <- cargar_datos(
+  "../data/metadata_countries_internet_users.csv"
+) |>
+  select(-starts_with("x"))
+
+# Leo la tabla principal con el indicador de uso de internet.
+# Uso skip = 4 porque el archivo del Banco Mundial tiene filas iniciales informativas y la tabla empieza unas líneas más abajo.
+internet_raw <- cargar_datos(
+  "../data/internet_users_world_wide.csv",
+  skip = 4
+)
+
+# Reviso la estructura de ambas bases para confirmar que se hayan cargado bien.
+glimpse(metadata_raw)
+glimpse(internet_raw)
+```
+
+## 2. Pivoteo
+
+```{r}
+# Transformo la base principal de formato wide a long.
+# Las columnas de años quedaron con una "x" inicial por el uso de clean_names().
+internet_long <- internet_raw |>
+  pivot_longer(
+    cols = matches("^x\\d{4}$"),
+    names_to = "year",
+    values_to = "internet_users_pct"
+  ) |>
+  mutate(
+    year = str_remove(year, "^x"),
+    year = as.integer(year)
+  )
+
+glimpse(internet_long)
+```
+
+## 3. Tratamiento de NAs
+
+```{r}
+# Me quedo solo con los años relevantes para la hipótesis: 2013 a 2023.
+# Además elimino las observaciones donde falta el valor del indicador,
+# porque no aportan información para calcular promedios comparables entre grupos.
+internet_long <- internet_long |>
+  filter(year >= 2013, year <= 2023) |>
+  drop_na(internet_users_pct)
+
+glimpse(internet_long)
+```
+
+## 4. Cruce de datos
+
+```{r}
+# Realizo un left_join() entre la base principal y la tabla de metadata
+# usando country_code como clave compartida entre ambas tablas.
+datos_join <- internet_long |>
+  left_join(metadata_raw, by = "country_code")
+
+# Reviso la estructura general de la base resultante para confirmar
+# que se hayan incorporado correctamente las variables de metadata.
+glimpse(datos_join)
+
+# Hago una revisión más puntual de las variables relevantes para el análisis:
+# país, código, año, valor del indicador, región y grupo de ingreso.
+datos_join |>
+  select(country_name, country_code, year, internet_users_pct, region, income_group) |>
+  glimpse()
+```
+
+## 5. Agregación
+
+```{r}
+# Me quedo solo con los grupos de ingreso definidos en la consigna.
+# Después agrupo por año y por grupo de ingreso para calcular
+# el promedio del porcentaje de uso de internet en cada grupo
+resumen <- datos_join |>
+  filter(income_group %in% c(
+    "Low income",
+    "Lower middle income",
+    "Upper middle income",
+    "High income"
+  )) |>
+  group_by(year, income_group) |>
+  summarize(
+    promedio_internet = mean(internet_users_pct, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Reviso la tabla resumida
+resumen
+```
+
+## 7. Factores
+
+```{r}
+# Convierto income_group en un factor para imponer un orden jerárquico
+# de menor a mayor nivel de ingreso.
+resumen <- resumen |>
+  mutate(
+    income_group = factor(
+      income_group,
+      levels = c(
+        "Low income",
+        "Lower middle income",
+        "Upper middle income",
+        "High income"
+      )
+    )
+  )
+
+# Ordeno la tabla por año y grupo de ingreso para que quede más clara.
+resumen <- resumen |>
+  arrange(year, income_group)
+
+# Reviso la tabla con el orden jerárquico aplicado.
+resumen
+```
+
+## 8. Tabla final y exportación
+
+```{r}
+# Paso la tabla resumida a formato wide para que cada grupo de ingreso quede representado en una columna distinta.
+resultado_hipotesis <- resumen |>
+  pivot_wider(
+    names_from = income_group,
+    values_from = promedio_internet
+  ) |>
+  mutate(
+    indicator_name = "Proporción de la población que usa internet (%)"
+  ) |>
+  arrange(year)
+
+# Reviso la tabla final.
+resultado_hipotesis
+
+# Exporto la tabla final en formato csv a la carpeta output.
+write_csv(resultado_hipotesis, "../output/resultado_hipotesis.csv")
+```
+
+## 9. Conclusión
+
+A partir del análisis realizado, se observa que todos los grupos de ingreso aumentaron su porcentaje de uso de internet entre 2013 y 2023. Sin embargo, los grupos de mayores ingresos mantuvieron niveles absolutos más altos durante todo el período. Al mismo tiempo, los grupos de menores ingresos mostraron una expansión importante, lo que permite discutir la hipótesis planteada en términos de crecimiento relativo y desigualdad en el acceso.
