@@ -68,8 +68,7 @@ glimpse(internet_long)
 
 ```{r}
 # Me quedo solo con los años relevantes para la hipótesis: 2013 a 2023.
-# Además elimino las observaciones donde falta el valor del indicador,
-# porque no aportan información para calcular promedios comparables entre grupos.
+# Además elimino las observaciones donde falta el valor del indicador, porque no aportan información para calcular promedios comparables entre grupos.
 internet_long <- internet_long |>
   filter(year >= 2013, year <= 2023) |>
   drop_na(internet_users_pct)
@@ -80,13 +79,11 @@ glimpse(internet_long)
 ## 4. Cruce de datos
 
 ```{r}
-# Realizo un left_join() entre la base principal y la tabla de metadata
-# usando country_code como clave compartida entre ambas tablas.
+# Realizo un left_join() entre la base principal y la tabla de metadata usando country_code como clave compartida entre ambas tablas.
 datos_join <- internet_long |>
   left_join(metadata_raw, by = "country_code")
 
-# Reviso la estructura general de la base resultante para confirmar
-# que se hayan incorporado correctamente las variables de metadata.
+# Reviso la estructura general de la base resultante para confirmar que se hayan incorporado correctamente las variables de metadata.
 glimpse(datos_join)
 
 # Hago una revisión más puntual de las variables relevantes para el análisis:
@@ -100,8 +97,7 @@ datos_join |>
 
 ```{r}
 # Me quedo solo con los grupos de ingreso definidos en la consigna.
-# Después agrupo por año y por grupo de ingreso para calcular
-# el promedio del porcentaje de uso de internet en cada grupo
+# Después agrupo por año y por grupo de ingreso para calcular el promedio del porcentaje de uso de internet en cada grupo
 resumen <- datos_join |>
   filter(income_group %in% c(
     "Low income",
@@ -168,4 +164,4 @@ write_csv(resultado_hipotesis, "../output/resultado_hipotesis.csv")
 
 ## 9. Conclusión
 
-A partir del análisis realizado, se observa que todos los grupos de ingreso aumentaron su porcentaje de uso de internet entre 2013 y 2023. Sin embargo, los grupos de mayores ingresos mantuvieron niveles absolutos más altos durante todo el período. Al mismo tiempo, los grupos de menores ingresos mostraron una expansión importante, lo que permite discutir la hipótesis planteada en términos de crecimiento relativo y desigualdad en el acceso.
+A partir del análisis realizado, se observa que entre 2013 y 2023 los grupos de ingresos bajos y medios-bajos mostraron un crecimiento porcentual importante en el acceso a internet. Sin embargo, los grupos de ingresos medios-altos y altos mantuvieron niveles absolutos de penetración significativamente mayores durante todo el período. En este sentido, los resultados permiten sostener la hipótesis en términos de crecimiento relativo, aunque las brechas de acceso siguen siendo muy marcadas.
