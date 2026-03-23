@@ -62,8 +62,15 @@ internet_long <- internet_raw |>
   )
 
 glimpse(internet_long)
-```
 
+# Reviso la cantidad de filas y columnas de cada base.
+dim(metadata_raw)
+dim(internet_raw)
+
+# Reviso si los códigos de país aparecen como variable clave en ambas tablas.
+"country_code" %in% names(metadata_raw)
+"country_code" %in% names(internet_raw)
+```
 ## 3. Tratamiento de NAs
 
 ```{r}
@@ -74,6 +81,13 @@ internet_long <- internet_long |>
   drop_na(internet_users_pct)
 
 glimpse(internet_long)
+
+# Verifico cuántos países y años quedan representados en la base limpia.
+internet_long |>
+  summarize(
+    paises_distintos = n_distinct(country_code),
+    anios_distintos = n_distinct(year)
+  )
 ```
 
 ## 4. Cruce de datos
@@ -110,6 +124,10 @@ resumen <- datos_join |>
     promedio_internet = mean(internet_users_pct, na.rm = TRUE),
     .groups = "drop"
   )
+
+# Ordeno la tabla por año y grupo de ingreso para facilitar la lectura.
+resumen <- resumen |>
+  arrange(year, income_group)
 
 # Reviso la tabla resumida
 resumen
@@ -164,4 +182,22 @@ write_csv(resultado_hipotesis, "../output/resultado_hipotesis.csv")
 
 ## 9. Conclusión
 
-A partir del análisis realizado, se observa que entre 2013 y 2023 los grupos de ingresos bajos y medios-bajos mostraron un crecimiento porcentual importante en el acceso a internet. Sin embargo, los grupos de ingresos medios-altos y altos mantuvieron niveles absolutos de penetración significativamente mayores durante todo el período. En este sentido, los resultados permiten sostener la hipótesis en términos de crecimiento relativo, aunque las brechas de acceso siguen siendo muy marcadas.
+## Evaluación complementaria de la hipótesis
+# Comparo el valor promedio del indicador entre 2013 y 2023 para cada grupo de ingreso.
+```{r}
+comparacion_2013_2023 <- resumen |>
+  filter(year %in% c(2013, 2023)) |>
+  pivot_wider(
+    names_from = year,
+    values_from = promedio_internet
+  ) |>
+  mutate(
+    crecimiento_absoluto = `2023` - `2013`,
+    crecimiento_porcentual = ((`2023` - `2013`) / `2013`) * 100
+  )
+
+# Reviso la comparación entre el inicio y el final del período.
+comparacion_2013_2023
+```
+
+A partir del análisis realizado, se observa que entre 2013 y 2023 todos los grupos de ingreso aumentaron su nivel de acceso a internet. Sin embargo, los grupos de ingresos altos y medios-altos mantuvieron niveles absolutos de penetración significativamente mayores durante todo el período. Al mismo tiempo, los grupos de ingresos bajos y medios-bajos mostraron un crecimiento porcentual importante, lo que permite sostener la hipótesis en términos de crecimiento relativo, aunque las brechas de acceso siguen siendo marcadas.
