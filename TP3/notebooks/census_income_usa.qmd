@@ -44,10 +44,10 @@ En este trabajo aplicamos **regresión logística binomial** para modelar la pro
 
 La variable dependiente es `income`, dicotómica. La construimos con `<=50K` como categoría de referencia (primer nivel) y `>50K` como la clase a predecir (segundo nivel). Es decir, el modelo estima $P(\text{income} = \texttt{>50K})$.
 
-El enfoque es descroptivo y explicativo. Se busca *caracterizar* qué factores sociodemográficos y laborales (edad, educación, estado civil, género, horas trabajadas, ganancias de capital) se asocian con una mayor probabilidad de altos ingresos. Por eso ajustamos los modelos sobre el **conjunto completo de datos**, sin partición train/test.
+El enfoque es descriptivo y explicativo. Se busca *caracterizar* qué factores sociodemográficos y laborales (edad, educación, estado civil, género, horas trabajadas, ganancias de capital) se asocian con una mayor probabilidad de altos ingresos. Por eso ajustamos los modelos sobre el **conjunto completo de datos**, sin partición train/test.
 
-::: callout-important
-**Aclaración metodológic:.** Las asociaciones encontradas son **correlacionales**, no necesariamente causales. Se describen patrones en la muestra censal, no efectos causales identificados.
+::: callout-tip
+**Aclaración metodológica:** Las asociaciones encontradas son **correlacionales**, no necesariamente causales. Se describen patrones en la muestra censal, no efectos causales identificados.
 :::
 
 # Librerías necesarias
@@ -92,7 +92,7 @@ glimpse(datos_raw)
 
 El dataset trae **15.766 observaciones y 14 variables**, con nombres en `snake_case`. Las variables incluyen atributos sociodemográficos (`age`, `sex`, `race`, `native_country`, `marital_status`, `relationship`), educativos (`education`, `education_num`), laborales (`workclass`, `occupation`, `hours_per_week`) y financieros (`capital_gain`, `capital_loss`). La variable objetivo es `income`, con dos niveles: `<=50K` y `>50K`.
 
-## Diagnóstico inicial 
+## Diagnóstico inicial
 
 ```{r}
 #| label: diagnostico-calidad
@@ -539,7 +539,7 @@ ame |>
   )
 ```
 
-::: callout-tip
+::: callout-note
 **Interpretación directa (AME) con valores reales**
 
 -   **`educacion` (Posgrado − Sin secundaria):** **+48.2 pp**. Posgrado eleva la probabilidad de `>50K` en 48 puntos respecto de no terminar secundaria. El efecto más grande del modelo.
@@ -616,4 +616,129 @@ ggplot(df_plot_or, aes(y = reorder(term_clean, estimate), x = estimate)) +
 -   **`Interacción: Hombre × Casado`** (OR ≈ 0.33): único predictor a la **izquierda** de OR = 1. La prima del matrimonio se atenúa en hombres.
 -   **Edad, horas, capital gain y capital loss** cerca del 1, con barras angostas: efectos pequeños por unidad pero **altamente significativos**.
 -   **Ningún coeficiente cruza el OR = 1 a ningún nivel de confianza** (80/95/99): inferencia muy robusta gracias al tamaño muestral (\~15.766 obs.).
+:::
+
+# Visualización de la interacción `sex × marital_simple`
+
+Los coeficientes de interacción son difíciles de interpretar directamente. La forma más clara de entenderlos es graficar las **probabilidades predichas** del modelo según los valores de las dos variables que interactúan, comparando el Modelo Base (sin interacción) con el Modelo Interactivo. Esto muestra el **efecto real en probabilidades**, no en log-odds o chances.
+
+`marginaleffects::plot_predictions()` calcula la probabilidad predicha de `>50K` para cada combinación de `marital_simple × sex`, manteniendo el resto de las variables en su media/moda automáticamente.
+
+```{r}
+#| label: fig-efecto-interaccion
+#| fig-width: 14
+#| fig-height: 7
+
+# Predicciones marginales del Modelo Base (sin interacción).
+# Por construcción, la distancia entre hombres y mujeres es la MISMA en solteros y casados.
+p_base <- plot_predictions(modelo_base, condition = c("marital_simple", "sex")) +
+  scale_color_manual(values = c("Female" = "#D95F02", "Male" = "#1B9E77"), name = "Sexo") +
+  scale_fill_manual(values = c("Female" = "#D95F02", "Male" = "#1B9E77"), name = "Sexo") +
+  scale_y_continuous(labels = scales::label_percent(), limits = c(0, 1)) +
+  labs(
+    title = "Modelo 1: sin interacción",
+    subtitle = "La brecha de género se asume IGUAL entre\nsolteros y casados (líneas paralelas).",
+    x = "Estado civil", y = "Probabilidad predicha de >50K"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(plot.title = element_text(face = "bold"), legend.position = "none")
+
+# Predicciones marginales del Modelo Interactivo.
+# Al liberar la restricción, la brecha de género puede variar según el estado civil.
+p_int <- plot_predictions(modelo_int, condition = c("marital_simple", "sex")) +
+  scale_color_manual(values = c("Female" = "#D95F02", "Male" = "#1B9E77"), name = "Sexo") +
+  scale_fill_manual(values = c("Female" = "#D95F02", "Male" = "#1B9E77"), name = "Sexo") +
+  scale_y_continuous(labels = scales::label_percent(), limits = c(0, 1)) +
+  labs(
+    title = "Modelo 2: con interacción (Sexo × Estado civil)",
+    subtitle = "La prima del matrimonio puede tener distinto\ntamaño en hombres y mujeres.",
+    x = "Estado civil", y = NULL
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(plot.title = element_text(face = "bold"))
+
+# Combinamos los dos paneles con patchwork
+p_base + p_int +
+  plot_annotation(
+    title = "¿Por qué importa modelar la interacción Sexo × Estado civil?",
+    caption = "Bandas = IC 95%. Predicciones marginales con el resto de variables constantes.",
+    theme = theme(plot.title = element_text(face = "bold", size = 18))
+  )
+```
+
+::: callout-note
+**La interacción se vuelve clara en probabilidades**
+
+En el **Modelo 1** (panel izquierdo), el algoritmo está forzado a mantener una distancia constante entre hombres y mujeres a lo largo de los dos estados civiles: las dos líneas (verde para hombres, naranja para mujeres) son paralelas por construcción. Bajo este modelo, la diferencia entre sexos es idéntica en solteros y casados.
+
+En el **Modelo 2** (panel derecho), al liberar esa restricción, el patrón real emerge:
+
+- **Entre solteros**, los hombres tienen una probabilidad de `>50K` mayor que las mujeres (la línea verde queda más arriba que la naranja).
+- **Entre casados**, las dos líneas casi convergen — incluso podría revertirse el signo (la mujer casada puede tener probabilidad ligeramente mayor o igual al hombre casado, dependiendo del resto de los predictores).
+- Es decir, el salto de soltero a casado es muchísimo mayor en mujeres que en hombres. Esa es la prima del matrimonio asimétrica que ya habían anticipado los Odds Ratios.
+
+En EE. UU., una mujer casada que aún participa del mercado laboral full-time pertenece a un grupo fuertemente seleccionado (modelo de "doble carrera" / hogares de altos ingresos), mientras que el matrimonio no transforma tanto la posición laboral de los hombres porque ya están masivamente en el mercado tanto solteros como casados. 
+:::
+
+## Interpretación de las variables significativas y de la interacción en probabilidades
+
+Resumen de los efectos en términos **interpretables**, integrando los OR y AME presentados:
+
+- **Educación (efecto más fuerte del modelo)**: cada escalón educativo eleva la probabilidad de `>50K` de forma marcada. Tener **posgrado** suma **48.2 pp** respecto de no terminar el secundario; tener **diploma universitario**, **40.5 pp**. Es un retorno monótono y consistente.
+- **Estado civil**: casarse asocia un salto promedio de **+37.8 pp** de probabilidad de `>50K`. La prima es de **+53 pp en términos brutos**, pero al controlar por edad, educación, horas y capital se sigue manteniendo enorme.
+- **Edad y horas trabajadas**: efectos individuales chicos (~0.5 pp por año / por hora) pero **acumulativos y altamente significativos**. Diez años de edad o 10 horas semanales más suman ~5 pp de probabilidad.
+- **Capital gain y capital loss**: ambos asociados positivamente con `>50K`. Tener pérdidas de capital declarado correlaciona con altos ingresos porque solo quienes tienen cartera invertida pueden tener pérdidas declaradas.
+- **Sexo en términos absolutos**: el AME promedio es prácticamente cero (-0.07 pp, p = 0.928), pero **no porque el sexo no importe**, sino porque los efectos opuestos del sexo en solteros vs casados se cancelan al promediar. La interacción captura toda la dinámica.
+- **Interacción Sexo × Estado civil**: la prima del matrimonio es **mucho mayor en mujeres que en hombres** una vez controlados los demás predictores, contradiciendo la hipótesis inicial del "varón proveedor".
+
+# Comparación global de modelos
+
+Hasta este punto se interpretó el Modelo 2 (con interacción), pero la consigna pide compararlo formalmente con el Modelo 1 (sin interacción) para decidir si vale la pena la complejidad adicional. Usamos `broom::glance()` para extraer las métricas de ajuste de cada modelo y las apilamos en una tabla.
+
+Podemos ver:
+- **Deviance nula:** información que le falta a un modelo que solo usa el intercepto.
+- **Deviance residual:** información que le falta al modelo completo.
+- **Pseudo-R² (McFadden):** calculado como $1 - \frac{\text{deviance residual}}{\text{deviance nula}}$. Su interpretación es análoga a la del $R^2$ de OLS.
+- **AIC** (*Akaike Information Criterion*): menor valor indica mejor ajuste penalizando complejidad. Una caída superior a 10 puntos ya es indicio claro de que el modelo más complejo es preferible.
+
+```{r}
+#| label: comparacion-modelos
+
+bind_rows(
+  broom::glance(modelo_base) |> mutate(Modelo = "1. Sin interacción"),
+  broom::glance(modelo_int)  |> mutate(Modelo = "2. Con interacción")
+) |>
+  # Pseudo-R² de McFadden a partir de las deviances (versión del tutorial 10):
+  #   pseudo_r2 = 1 - (deviance residual / deviance nula)
+  mutate(pseudo_r2 = 1 - (deviance / null.deviance)) |>
+  # Ordenamos las columnas para reporte
+  select(Modelo, null.deviance, deviance, pseudo_r2, AIC, nobs) |>
+  rename(
+    `Deviance Nula`     = null.deviance,
+    `Deviance Residual` = deviance,
+    `Pseudo-R²`         = pseudo_r2,
+    `Observaciones`     = nobs
+  ) |>
+  knitr::kable(
+    digits  = c(0, 1, 1, 4, 1, 0),
+    caption = "Métricas de ajuste global (datos completos)"
+  ) |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+    full_width = FALSE, position = "center"
+  ) |>
+  # Resaltamos la fila del modelo ganador (el Modelo 2)
+  row_spec(2, bold = TRUE, color = "black", background = "#e6f2ff")
+```
+
+::: callout-important
+**¿La interacción mejora el modelo?**
+
+Comparando ambas filas de la tabla:
+
+- **AIC:** baja de **13.442** (Modelo 1) a **13.349** (Modelo 2). Es una caída de **93 puntos**, muy por encima del umbral de 10 que sugiere la regla práctica del tutorial. La evidencia es contundente: el Modelo 2 ajusta sustancialmente mejor pese a tener un parámetro adicional.
+- **Pseudo-R²:** crece de **0.385** (Modelo 1) a **0.389** (Modelo 2). Es una mejora modesta en términos absolutos (~0.4 pp), pero coherente con el AIC. Con muestras grandes (n ≈ 15.766) los Pseudo-R² cambian poco entre modelos anidados, así que el AIC es más sensible y suele ser la métrica decisiva.
+- **Deviance residual:** baja de 13.420 a 13.325, una reducción de 95 puntos para un único grado de libertad adicional (el término de interacción). Una prueba de chi-cuadrado de razón de verosimilitud confirmaría que esta reducción es altamente significativa.
+
+**Conclusión:** la inclusión de la interacción `sex × marital_simple` mejora claramente el modelo, tanto en términos estadísticos (AIC y deviance) como teóricos (permite ver que la prima del matrimonio difiere entre hombres y mujeres). El Modelo 2 es el modelo preferido para describir los determinantes de la probabilidad de altos ingresos en la muestra.
 :::
