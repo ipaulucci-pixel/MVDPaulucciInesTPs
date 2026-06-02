@@ -742,3 +742,31 @@ Comparando ambas filas de la tabla:
 
 **Conclusión:** la inclusión de la interacción `sex × marital_simple` mejora claramente el modelo, tanto en términos estadísticos (AIC y deviance) como teóricos (permite ver que la prima del matrimonio difiere entre hombres y mujeres). El Modelo 2 es el modelo preferido para describir los determinantes de la probabilidad de altos ingresos en la muestra.
 :::
+
+# Interpretación final
+
+A partir del análisis presentado, se resumen los hallazgos sustantivos sobre los determinantes de la probabilidad de pertenecer al estrato de altos ingresos (`>50K`) en la muestra del *Adult Census Income* (n ≈ 15.766).
+
+## Factores asociados con mayor probabilidad de altos ingresos
+
+- **Educación**: el predictor más fuerte del modelo. La probabilidad de `>50K` aumenta monótonamente a cada escalón educativo. Tener posgrado suma **+48.2 puntos porcentuales** de probabilidad respecto de no haber terminado el secundario; un diploma universitario, **+40.5 pp**. Es un retorno educativo consistente y muy marcado.
+- **Estado civil**: estar casado asocia **+37.8 pp** de probabilidad de `>50K` en promedio. La "prima del matrimonio" es uno de los efectos más grandes del modelo, comparable a tener educación universitaria.
+- **Edad y horas semanales**: efectos pequeños por unidad (~0.5 pp por año / por hora) pero altamente significativos y acumulativos. Diez años o diez horas adicionales suman ~5 pp cada uno.
+- **Capital gain y capital loss**: ambos correlacionan positivamente con `>50K`. Tener pérdidas declaradas indica tener capital invertido, marcador indirecto de altos ingresos.
+
+## El rol de la interacción Sexo × Estado civil
+
+El término de interacción **`sex × marital_simple`** resulta altamente significativo (p < 2e-16) y la inclusión de la interacción *mejora claramente* el ajuste (AIC: 13.442 → 13.349, reducción de 93 puntos). El hallazgo central es que **la prima del matrimonio es asimétrica entre sexos**:
+
+- Para una **mujer**, casarse multiplica las chances de `>50K` por aproximadamente **23**.
+- Para un **hombre**, casarse las multiplica por aproximadamente **7.7**.
+
+La prima del matrimonio resulta así *alrededor de tres veces más fuerte en mujeres que en hombres* una vez controlados edad, educación, horas trabajadas y capital. Este resultado *contradice la hipótesis inicial* que habíamos planteado al proponer la interacción, que predeciría una prima mayor en hombres. Una lectura importante del hallazgo es que las mujeres casadas que aún participan del mercado laboral *full-time* con alta educación constituyen un grupo fuertemente seleccionado (modelo de "doble carrera"/hogares de altos ingresos), mientras que los hombres ya están masivamente en el mercado laboral tanto solteros como casados, de modo que el matrimonio no transforma tanto su probabilidad de pertenecer al estrato alto.
+
+Otro resultado vinculado es que el **AME promedio del sexo es prácticamente cero** (-0.07 pp, p = 0.928): no porque el sexo no importe, sino porque sus efectos opuestos en solteros y casados **se cancelan al promediar**. Esto refuerza la importancia de haber incluido la interacción.
+
+## Alcance del análisis
+
+Las asociaciones que se reportaron son **correlacionales**, no causales. Describimos patrones en una muestra censal (rebalanceada por la cátedra a ~52/48), no efectos causales identificados: existen factores no observados (sector económico, tipo de empresa, trayectoria migratoria, características del hogar) que podrían sesgar las estimaciones puntuales. Las probabilidades predichas absolutas tampoco extrapolan a la población general de EE. UU., porque la muestra fue rebalanceada y la prevalencia real de `>50K` es menor.
+
+Dicho esto, los **patrones cualitativos** (gradiente educativo, prima del matrimonio asimétrica, efectos pequeños pero acumulativos de edad y horas) son robustos: sobreviven al 99% de confianza, son consistentes con la literatura económica y se sostienen a través de los tres lentes -Odds Ratios, AME y probabilidades predichas- que aplicamos sucesivamente.
