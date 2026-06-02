@@ -1,5 +1,5 @@
 ---
-title: "TP3 Regresión logística: ¿qué determina pertenecer al estrato de altos ingresos (>50K)?"
+title: "TP3: Regresión logística sobre el Adult Census Income"
 author: "Paulucci, Inés"
 date: "`r Sys.Date()`"
 lang: es
@@ -44,9 +44,15 @@ En este trabajo aplicamos **regresión logística binomial** para modelar la pro
 
 La variable dependiente es `income`, dicotómica. La construimos con `<=50K` como categoría de referencia (primer nivel) y `>50K` como la clase a predecir (segundo nivel). Es decir, el modelo estima $P(\text{income} = \texttt{>50K})$.
 
-El enfoque es **descriptivo y explicativo**: buscamos *caracterizar* qué factores sociodemográficos y laborales (edad, educación, estado civil, género, horas trabajadas, ganancias de capital) se asocian con una mayor probabilidad de altos ingresos. Por eso ajustamos los modelos sobre el **conjunto completo de datos**, sin partición train/test.
+El enfoque es descroptivo y explicativo. Se busca *caracterizar* qué factores sociodemográficos y laborales (edad, educación, estado civil, género, horas trabajadas, ganancias de capital) se asocian con una mayor probabilidad de altos ingresos. Por eso ajustamos los modelos sobre el **conjunto completo de datos**, sin partición train/test.
+
+::: callout-important
+**Aclaración metodológic:.** Las asociaciones encontradas son **correlacionales**, no necesariamente causales. Se describen patrones en la muestra censal, no efectos causales identificados.
+:::
 
 # Librerías necesarias
+
+Se usa `pacman` para gestionar e instalar paquetes de forma reproducible: con `pacman::p_load()` se carga (e instala) todo en una sola llamada.
 
 ```{r}
 #| label: load-packages
@@ -68,51 +74,80 @@ pacman::p_load(
 # Paleta: azul = ingresos bajos (<=50K), rojo = ingresos altos (>50K)
 paleta_ingresos <- c("<=50K" = "#2166AC", ">50K" = "#B2182B")
 ```
-# Limpieza y transformación de datos
 
-A pesar del diagnóstico previo (sin NAs ni `"?"`), aplicamos **toda la cadena defensiva** que la consigna exige para garantizar la calidad del dataset y reportar cuántas filas se ven afectadas en cada paso. Las operaciones son:
+# Carga de datos con `here`
 
-1. Recortar espacios al inicio/fin de las cadenas (`str_trim`).
-2. Mapear posibles `"?"` a `NA`.
-3. Quitar un eventual punto final en `income` (`"<=50K."` → `"<=50K"`).
-4. Construir la variable respuesta como **factor con orden explícito**: `<=50K` (referencia) y `>50K` (clase a predecir). También construimos su versión numérica binaria `income_bin`.
-5. Simplificar `marital_status` a dos categorías `single` / `married`.
-6. Agrupar `education` en cinco niveles ordenados.
-7. Fijar categorías de referencia (`fct_relevel`) según la historia a contar.
-8. Eliminar NAs en las variables del análisis.
+Cargamos el `.csv` con `readr::read_csv()` y `here::here()`, que construye la ruta **relativa a la raíz del proyecto** (donde está el `.Rproj`).
 
 ```{r}
+#| label: cargar-datos
 
+datos_raw <- read_csv(
+  here::here("TP3", "data", "adult_census_USA.csv"),
+  show_col_types = FALSE
+)
+
+glimpse(datos_raw)
+```
+
+El dataset trae **15.766 observaciones y 14 variables**, con nombres en `snake_case`. Las variables incluyen atributos sociodemográficos (`age`, `sex`, `race`, `native_country`, `marital_status`, `relationship`), educativos (`education`, `education_num`), laborales (`workclass`, `occupation`, `hours_per_week`) y financieros (`capital_gain`, `capital_loss`). La variable objetivo es `income`, con dos niveles: `<=50K` y `>50K`.
+
+## Diagnóstico inicial 
+
+```{r}
+#| label: diagnostico-calidad
+
+datos_raw |> 
+  summarise(across(everything(), ~ sum(is.na(.)))) |> 
+  pivot_longer(everything(), names_to = "variable", values_to = "n_NA") |> 
+  arrange(desc(n_NA))
+
+prop.table(table(datos_raw$income)) |> round(3)
+```
+
+::: callout-note
+**Estado del dataset.** El dataset que provee la materia no contiene valores faltantes (0 NAs en todas las columnas) ni `"?"` como marcadores de ausencia en las variables categóricas. Además, **la variable objetivo está casi perfectamente balanceada (`<=50K` ≈ 52% / `>50K` ≈ 48%)**, a diferencia del *Adult Census* original (que ronda 75/25). Parece que hubo un sub-muestreo de los registros de bajos ingresos para construir un conjunto equilibrado.
+:::
+
+# Limpieza y transformación de datos
+
+A pesar del diagnóstico previo (sin NAs ni `"?"`), aplicamos **toda la cadena defensiva** y reportamos cuántas filas se ven afectadas en cada paso. Operaciones:
+
+1.  Recortar espacios al inicio/fin de las cadenas (`str_trim`).
+2.  Mapear posibles `"?"` a `NA`.
+3.  Quitar un eventual punto final en `income` (`"<=50K."` → `"<=50K"`).
+4.  Construir la variable respuesta como **factor con orden explícito**: `<=50K` (referencia) y `>50K` (clase a predecir). Construimos también su versión numérica binaria `income_bin`.
+5.  Simplificar `marital_status` a dos categorías `single` / `married`.
+6.  Agrupar `education` en cinco niveles ordenados.
+7.  Fijar categorías de referencia (`fct_relevel`) según la historia a contar.
+8.  Eliminar NAs en las variables del análisis.
+
+```{r}
 #| label: limpieza
 
-# --- (a) Limpieza defensiva ---
-datos_limpios 
-  mutate(across(where(is.character), str_trim)) |>                # recorta espacios
-  mutate(across(where(is.character), ~ na_if(.x, "?"))) |>        # "?" -> NA
-  mutate(income = str_remove(income, "\\.$"))                     # quita "." final si hay
+# (a) Limpieza defensiva 
+datos_limpios <- datos_raw |>
+  mutate(across(where(is.character), str_trim)) |>
+  mutate(across(where(is.character), ~ na_if(.x, "?"))) |>
+  mutate(income = str_remove(income, "\\.$"))
 
-# Reporte: NAs introducidos por la conversión de "?"
 cat("NAs por columna luego de la limpieza defensiva:\n")
 datos_limpios |>
   summarise(across(everything(), ~ sum(is.na(.)))) |>
   pivot_longer(everything(), names_to = "variable", values_to = "n_NA") |>
   arrange(desc(n_NA))
 
-# --- (b) Construcción de variables transformadas ---
-datos 
+# (b) Construcción de variables transformadas
+datos <- datos_limpios |>
   mutate(
-    # Factor con niveles EXPLÍCITOS: <=50K es la REFERENCIA, >50K es la clase positiva.
     income = factor(income, levels = c("<=50K", ">50K")),
-    # Versión binaria numérica (0/1), útil para gráficos.
     income_bin = if_else(income == ">50K", 1L, 0L),
 
-    # marital_status -> {single, married}: "Married-*" son casados; el resto, soltero.
     marital_simple = case_when(
       str_detect(marital_status, "^Married") ~ "married",
       TRUE                                   ~ "single"
     ),
 
-    # Agrupamos los 16 niveles de education en 5 ordenados.
     educacion = case_when(
       education %in% c("Preschool","1st-4th","5th-6th","7th-8th",
                        "9th","10th","11th","12th")              ~ "Sin secundaria",
@@ -123,20 +158,16 @@ datos
       TRUE                                                      ~ NA_character_
     )
   ) |>
-  # --- (c) Categorías de referencia (fct_relevel) ---
+  # (c) Categorías de referencia 
   mutate(
-    # Educación: ref = "Sin secundaria" -> lee el gradiente educativo creciente.
     educacion = fct_relevel(
       educacion,
       "Sin secundaria", "Secundaria",
       "Terciaria/Univ. incompleta", "Universitaria", "Posgrado"
     ),
-    # Estado civil: ref = "single" -> el coef. de "married" mide la prima del matrimonio.
     marital_simple = fct_relevel(marital_simple, "single", "married"),
-    # Sexo: ref = "Female" -> el coef. de "Male" mide la brecha de género.
     sex = fct_relevel(sex, "Female", "Male")
   ) |>
-  # --- (d) Selección y limpieza final de NAs ---
   select(
     income, income_bin,
     age, educacion, marital_simple, sex,
@@ -144,8 +175,7 @@ datos
   ) |>
   drop_na()
 
-# --- (e) Reporte de filas afectadas ---
-cat("\n--- Resumen del proceso de limpieza ---\n")
+cat("\n Resumen del proceso de limpieza \n")
 cat("Filas en el dataset original:    ", nrow(datos_raw),  "\n")
 cat("Filas tras limpieza y selección: ", nrow(datos),      "\n")
 cat("Filas eliminadas:                ", nrow(datos_raw) - nrow(datos), "\n")
@@ -156,18 +186,14 @@ glimpse(datos)
 ::: callout-note
 **Variables seleccionadas y justificación de las referencias**
 
-- `age`, `hours_per_week`: continuas (edad y dedicación laboral).
-- `educacion`: capital educativo. **Ref. = "Sin secundaria"** → los coeficientes leen el gradiente: cuánto suma cada escalón respecto de no terminar el secundario.
-- `marital_simple`: **Ref. = "single"** → el coeficiente de `married` mide la prima del matrimonio.
-- `sex`: **Ref. = "Female"** → el coeficiente de `Male` mide la brecha de género.
-- `capital_gain`, `capital_loss`: ingresos por capital (muy sesgados → ver transformación log más adelante).
-
-Elegimos estas referencias en función de la **historia a contar**: una narrativa sobre brecha de género, prima del matrimonio y retorno educativo en la probabilidad de altos ingresos.
+-   `age`, `hours_per_week`: continuas (edad y dedicación laboral).
+-   `educacion`: capital educativo. **Ref. = "Sin secundaria"** → los coeficientes leen el gradiente: cuánto suma cada escalón respecto de no terminar el secundario.
+-   `marital_simple`: **Ref. = "single"** → el coeficiente de `married` mide la prima del matrimonio.
+-   `sex`: **Ref. = "Female"** → el coeficiente de `Male` mide la brecha de género.
+-   `capital_gain`, `capital_loss`: ingresos por capital (muy sesgados → transformación log).
 :::
 
-## Verificación de balance de la variable dependiente
-
-Aunque el diagnóstico inicial mostró un balance casi perfecto, lo verificamos explícitamente sobre el dataset transformado y lo visualizamos.
+## Verificación del balance de la variable dependiente
 
 ```{r}
 #| label: balance-tabla
@@ -200,14 +226,10 @@ datos |>
 ```
 
 ::: callout-note
-**Balance verificado.** Los datos están casi perfectamente equilibrados (≈ 52% / 48%), un escenario análogo al del tutorial 10 (51% / 49%). Esta condición es muy favorable para el ajuste e interpretación de un modelo logístico: no se requieren técnicas de remuestreo ni pesos correctivos, y los *Odds Ratios* y *Average Marginal Effects* serán estables.
+**Balance verificado.** Los datos están casi perfectamente equilibrados (≈ 52% / 48%), un escenario análogo al del tutorial 10 (51% / 49%). Esto es muy favorable para el ajuste e interpretación del modelo logístico.
 :::
 
-------------------------------------------------------------------------
-
 # Análisis exploratorio y decisiones de transformación
-
-Antes de modelar miramos las distribuciones de las variables predictoras según `income`. El criterio para decidir transformaciones o términos de interacción no se basa en correr modelos a ciegas sino en **observar cómo se separan las distribuciones**.
 
 ## Variables continuas vs. `income`
 
@@ -216,7 +238,6 @@ Antes de modelar miramos las distribuciones de las variables predictoras según 
 #| fig-width: 14
 #| fig-height: 10
 
-# Edad vs income (violin + boxplot)
 p_age <- datos |>
   ggplot(aes(x = income, y = age, fill = income, color = income)) +
   geom_violin(alpha = 0.3, linewidth = 0.5, width = 0.8) +
@@ -227,7 +248,6 @@ p_age <- datos |>
   theme_minimal(base_size = 14) +
   theme(plot.title = element_text(face = "bold", size = 15))
 
-# Horas trabajadas vs income (violin + boxplot)
 p_hours <- datos |>
   ggplot(aes(x = income, y = hours_per_week, fill = income, color = income)) +
   geom_violin(alpha = 0.3, linewidth = 0.5, width = 0.8) +
@@ -238,7 +258,6 @@ p_hours <- datos |>
   theme_minimal(base_size = 14) +
   theme(plot.title = element_text(face = "bold", size = 15))
 
-# capital_gain crudo (solo > 0)
 p_capgain <- datos |>
   filter(capital_gain > 0) |>
   ggplot(aes(x = capital_gain, fill = income)) +
@@ -251,7 +270,6 @@ p_capgain <- datos |>
   theme(plot.title = element_text(face = "bold", size = 15),
         legend.position = "bottom")
 
-# capital_gain con log1p
 p_capgain_log <- datos |>
   ggplot(aes(x = log1p(capital_gain), fill = income)) +
   geom_density(alpha = 0.5, linewidth = 0.7) +
@@ -272,27 +290,26 @@ p_capgain_log <- datos |>
 ::: callout-tip
 **Lectura de las distribuciones**
 
-1. **Edad:** la mediana del grupo `>50K` ronda los 43-45 años, contra ~35 años del grupo `<=50K`. El alto ingreso se concentra en etapas más maduras de la carrera laboral.
-2. **Horas semanales:** los `<=50K` se concentran masivamente en la jornada estándar de 40 horas; los `>50K` tienen mediana en ~45 y una cola más larga hacia arriba.
-3. **Capital gain crudo:** distribución hiper-asimétrica con casi todo amontonado a la izquierda y outliers cerca de USD 100.000.
-4. **Capital gain en log1p:** distribución bimodal (pico en 0 y segunda joroba alrededor de log1p ≈ 9), dominada por rojo (`>50K`) en la cola alta.
+1.  **Edad:** mediana del grupo `>50K` \~43-45 años, contra \~35 años del grupo `<=50K`. El alto ingreso se concentra en etapas más maduras.
+2.  **Horas semanales:** los `<=50K` se concentran en la jornada estándar de 40 horas; los `>50K` tienen mediana \~45 con cola más larga.
+3.  **Capital gain crudo:** distribución hiper-asimétrica con outliers cerca de USD 100.000.
+4.  **Capital gain en log1p:** distribución bimodal, dominada por rojo (`>50K`) en la cola alta.
 :::
 
 ## Justificación de la transformación logarítmica
 
 `capital_gain` y `capital_loss` son variables monetarias con **fuerte asimetría positiva** y **muchos ceros**. Aplicar `log1p(x) = log(x + 1)`:
 
-- **comprime la cola** (los outliers dejan de dominar la pendiente del modelo) y
-- **maneja los ceros sin discontinuidad** (a diferencia de `log(x)`, indefinido en 0).
+-   **comprime la cola** (los outliers dejan de dominar la pendiente del modelo) y
+-   **maneja los ceros sin discontinuidad** (a diferencia de `log(x)`, indefinido en 0).
 
-Teóricamente tiene sentido modelar el efecto del capital de forma **multiplicativa / con rendimientos marginalmente decrecientes**: pasar de 0 a 5.000 dólares cambia mucho la probabilidad de `>50K`, pero pasar de 50.000 a 55.000 ya casi no agrega información.
+Teóricamente tiene sentido modelar el efecto del capital de forma **multiplicativa / con rendimientos marginalmente decrecientes**.
 
 ```{r}
 #| label: fig-capital-loss
 #| fig-width: 7
 #| fig-height: 4
 
-# Verificación de capital_loss
 datos |>
   ggplot(aes(x = log1p(capital_loss), fill = income)) +
   geom_density(alpha = 0.5, linewidth = 0.7) +
@@ -303,8 +320,6 @@ datos |>
   theme(plot.title = element_text(face = "bold", size = 15),
         legend.position = "bottom")
 ```
-
-`capital_loss` muestra el mismo perfil bimodal que `capital_gain` (la mayoría vale 0 y unos pocos tienen pérdidas considerables). La misma transformación `log1p` se justifica por idénticas razones.
 
 ## Variables categóricas vs. `income`
 
@@ -354,16 +369,14 @@ p_sex <- datos |>
 ::: callout-tip
 **Lectura de las categóricas**
 
-- **Educación:** gradiente monótono perfecto. La proporción de `>50K` crece de ~15% en "Sin secundaria" hasta ~80% en "Posgrado". Retorno educativo muy fuerte.
-- **Estado civil:** brecha enorme. Solteros: ~17% son `>50K`. Casados: ~70% son `>50K`. Prima del matrimonio de +53 pp en términos brutos.
-- **Sexo:** brecha de género clara. Mujeres: ~26% son `>50K`. Hombres: ~55%. Diferencia bruta de +29 pp.
+-   **Educación:** gradiente monótono perfecto. La proporción de `>50K` crece de \~15% en "Sin secundaria" hasta \~80% en "Posgrado". Retorno educativo muy fuerte.
+-   **Estado civil:** brecha enorme. Solteros: \~17% son `>50K`. Casados: \~70%. Prima del matrimonio de +53 pp en términos brutos.
+-   **Sexo:** brecha de género clara. Mujeres: \~26% son `>50K`. Hombres: \~55%. Diferencia bruta de +29 pp.
 :::
 
 ## Justificación teórica de la interacción `sex × marital_simple`
 
-Proponemos como interacción **sexo × estado civil**. La hipótesis teórica de partida es el "modelo del varón proveedor": históricamente, el matrimonio se asoció en EE. UU. con una mayor dedicación de los hombres al mercado laboral (especialización del hogar) y un retiro relativo de las mujeres. Bajo esa lectura esperaríamos que **la prima del matrimonio fuera mayor en hombres**.
-
-Si la dinámica es esa (o su opuesto), el efecto del matrimonio **no se explica sumando** los efectos aislados de "ser hombre" y "estar casado": necesitamos el término de interacción para capturarlo.
+Se propone como interacción **sexo × estado civil**. La hipótesis teórica de partida es el "modelo del varón proveedor": históricamente, el matrimonio se asoció en EE. UU. con una mayor dedicación de los hombres al mercado laboral y un retiro relativo de las mujeres. Bajo esa lectura esperaríamos que **la prima del matrimonio fuera mayor en hombres**. Si la dinámica es esa (o su opuesto), el efecto del matrimonio **no se explica sumando** los efectos aislados.
 
 ```{r}
 #| label: fig-justifica-interaccion
@@ -389,21 +402,19 @@ datos |>
 ::: callout-tip
 **Justificación visual de la interacción**
 
-La proporción de `>50K` salta del orden de 12% (single) a ~65% (married) en mujeres, y de ~20% (single) a ~75% (married) en hombres. La **diferencia** entre paneles (la brecha de género se amplifica entre casados: ~10 pp en casados vs ~8 pp en solteros) ya sugiere que las pendientes no son idénticas y justifica modelar la interacción. El modelo logístico nos dirá si esa diferencia es estadísticamente significativa y en qué dirección apunta.
+La proporción de `>50K` salta del orden de 12% (single) a \~65% (married) en mujeres, y de \~20% (single) a \~75% (married) en hombres. La diferencia entre paneles (la brecha de género se amplifica entre casados: \~10 pp en casados vs \~8 pp en solteros) sugiere que las pendientes no son idénticas y justifica modelar la interacción.
 :::
-
-------------------------------------------------------------------------
 
 # Ajuste de modelos logísticos
 
-Usamos `glm()` con `family = binomial` (función de enlace logit). Esto modela el **logaritmo de las chances (*log-odds*)** de que `income = ">50K"`:
+Usamos `glm()` con `family = binomial`, que modela el **logaritmo de las chances (*log-odds*)** de que `income = ">50K"`:
 
 $$ \ln\!\left(\frac{P(Y=1)}{1-P(Y=1)}\right) = \beta_0 + \beta_1 X_1 + \dots + \beta_k X_k $$
 
-Ajustamos dos modelos:
+Dos modelos:
 
-- **Modelo 1 (Base):** edad + educación + estado civil + sexo + horas + log1p(capital).
-- **Modelo 2 (Interactivo):** Modelo 1 + interacción `sex * marital_simple`.
+-   **Modelo 1 (Base):** edad + educación + estado civil + sexo + horas + log1p(capital).
+-   **Modelo 2 (Interactivo):** Modelo 1 + interacción `sex * marital_simple`.
 
 ```{r}
 #| label: modelos-logisticos
@@ -430,24 +441,20 @@ summary(modelo_int)
 ::: callout-caution
 **Interpretación de los `summary()` en log-odds**
 
-Los `Estimate` están en escala de log-odds, poco intuitiva. Por eso a continuación pasamos a (1) **Odds Ratios**, (2) **Efectos Marginales Promedio (AME)** y (3) **probabilidades predichas**.
+Los `Estimate` están en escala de log-odds. Por eso pasamos a (1) **Odds Ratios**, (2) **AME** y (3) probabilidades predichas.
 
-Tres observaciones rápidas:
-
-- **AIC**: cae de 13.442 (Modelo 1) a 13.349 (Modelo 2), una mejora de 93 puntos. La regla del tutorial dice que una caída superior a 10 ya justifica preferir el modelo más complejo: acá la evidencia es contundente.
-- **Interacción `sexMale:marital_simplemarried` = -1.10** (p < 2e-16): es **negativa**, altamente significativa, e implica que **la prima del matrimonio se atenúa en hombres**. Esto contradice la hipótesis del "varón proveedor": una vez controlados edad, educación, horas y capital, **la prima del matrimonio resulta mayor en mujeres que en hombres**.
-- **Todos los predictores** son altamente significativos (p < 2e-16, salvo `sexMale` en el Modelo 1 con p ≈ 1.4e-4). El tamaño muestral (15.766 obs.) permite detectar efectos pequeños.
+-   **AIC**: cae de 13.442 (Modelo 1) a 13.349 (Modelo 2), una mejora de 93 puntos. La regla del tutorial pide \>10 → la evidencia es contundente.
+-   **Interacción `sexMale:marital_simplemarried` = -1.10** (p \< 2e-16): negativa, altamente significativa. La prima del matrimonio **se atenúa en hombres**: una vez controlados edad, educación, horas y capital, resulta **mayor en mujeres que en hombres**, contradiciendo la hipótesis del "varón proveedor".
+-   **Todos los predictores** son significativos a p \< 2e-16.
 :::
-
-------------------------------------------------------------------------
 
 # De *log-odds* a Odds Ratios (Modelo 2)
 
-Una *odd* (chance) es $p/(1-p)$. Si exponenciamos un coeficiente del modelo obtenemos su **Odds Ratio (OR)**, el factor multiplicativo sobre las chances al aumentar el predictor en una unidad:
+Una *odd* (chance) es $p/(1-p)$. Exponenciando un coeficiente obtenemos el **Odds Ratio (OR)**, el factor multiplicativo sobre las chances al aumentar el predictor en una unidad:
 
-- **OR > 1** → la variable **aumenta** las chances de `>50K`.
-- **OR < 1** → la variable **reduce** las chances de `>50K`.
-- **OR = 1** → efecto **neutro**.
+-   **OR \> 1** → la variable **aumenta** las chances de `>50K`.
+-   **OR \< 1** → la variable **reduce** las chances.
+-   **OR = 1** → efecto **neutro**.
 
 ```{r}
 #| label: odds-ratios
@@ -480,14 +487,133 @@ or_modelo |>
 ::: callout-tip
 **Lectura de los Odds Ratios significativos**
 
-- **Educación**: gradiente monótono y enorme. Secundaria multiplica las chances por ~3.2; Universitaria, por ~16; Posgrado, por ~29 (todas vs "Sin secundaria"). El **predictor más fuerte** del modelo.
-- **`marital_simplemarried` (OR ≈ 23):** ojo con la interpretación, porque al haber interacción este OR refleja el efecto del matrimonio **en la categoría de referencia de sexo (Female)**. Para una mujer, casarse multiplica por 23 las chances de `>50K`.
-- **`sexMale` (OR ≈ 2.14):** análogo: efecto de ser hombre vs mujer **en la referencia de estado civil (single)**. Multiplica por ~2.1 las chances entre solteros.
-- **`sexMale:marital_simplemarried` (OR ≈ 0.33):** la interacción **reduce** las chances cuando se combinan los dos atributos. Combinando todo:
-  - Mujer casada vs mujer soltera: OR ≈ **23** (prima del matrimonio enorme en mujeres).
-  - Hombre casado vs mujer soltera: OR = 2.14 × 23.24 × 0.332 ≈ **16.5** (prima del matrimonio en hombres más modesta).
-- **`age`, `hours_per_week`**: ambos OR ≈ 1.04 → cada unidad adicional aumenta las chances ~4%.
-- **`log1p(capital_gain)`, `log1p(capital_loss)`**: ambos > 1, significativos. Aun las pérdidas de capital correlacionan positivamente con `>50K` (solo gente con cartera invertida puede tener pérdidas declaradas).
+-   **Educación**: gradiente monótono enorme. Secundaria multiplica las chances por \~3.2; Universitaria, por \~16; Posgrado, por \~29. El **predictor más fuerte**.
+-   **`marital_simplemarried` (OR ≈ 23):** efecto del matrimonio **en mujeres** (la referencia de sexo). Casarse multiplica por 23 las chances de `>50K` para una mujer.
+-   **`sexMale` (OR ≈ 2.14):** efecto de ser hombre **entre solteros**. Multiplica por \~2.1.
+-   **`sexMale:marital_simplemarried` (OR ≈ 0.33):** la interacción **reduce** las chances cuando se combinan los dos atributos. Combinando todo:
+    -   Mujer casada vs mujer soltera: OR ≈ **23** (prima enorme en mujeres).
+    -   Hombre casado vs mujer soltera: OR ≈ 2.14 × 23.24 × 0.332 ≈ **16.5** (prima más modesta en hombres).
+-   **`age`, `hours_per_week`**: OR ≈ 1.04 → cada unidad +4% de chances.
+-   **`log1p(capital_gain)`, `log1p(capital_loss)`**: ambos \> 1 y significativos.
 
-**Hallazgo principal:** la "prima del matrimonio" parece ser **~3 veces más fuerte en mujeres que en hombres**, una vez controlados los demás predictores. Esto **contradice la hipótesis original del "varón proveedor"** y sugiere otra dinámica: las mujeres casadas que aún participan del mercado laboral full-time son un grupo fuertemente seleccionado (modelo de "doble carrera"), mientras que los hombres ya están masivamente en el mercado tanto solteros como casados.
+**Hallazgo principal:** la prima del matrimonio es **\~3 veces más fuerte en mujeres que en hombres** una vez controlados los demás predictores, **contradiciendo** la hipótesis del varón proveedor.
+:::
+
+# Efectos Marginales Promedio (AME)- Modelo 2
+
+Mientras que los OR hablan en términos de "chances"; los **AME** traducen el efecto de cada predictor a **puntos porcentuales de probabilidad**, una métrica más natural. `marginaleffects::avg_slopes()` calcula el efecto exacto para *cada observación* y promedia.
+
+```{r}
+#| label: average-marginal-effects
+
+ame <- marginaleffects::avg_slopes(modelo_int)
+
+ame |>
+  as_tibble() |>
+  select(term, contrast, estimate, conf.low, conf.high, p.value) |>
+  mutate(
+    `Efecto (pp)` = paste0(round(estimate * 100, 2), " pp"),
+    Interpretación = case_when(
+      estimate > 0 & p.value < 0.05 ~ "Aumenta prob. (Sig.)",
+      estimate < 0 & p.value < 0.05 ~ "Reduce prob. (Sig.)",
+      TRUE                          ~ "No significativo"
+    )
+  ) |>
+  select(term, contrast, `Efecto (pp)`, conf.low, conf.high, p.value, Interpretación) |>
+  rename(
+    Predictor = term, Contraste = contrast,
+    `IC Inferior` = conf.low, `IC Superior` = conf.high,
+    `Valor p` = p.value
+  ) |>
+  knitr::kable(
+    digits = 4,
+    caption = "Efectos Marginales Promedio (cambio en probabilidad de >50K)"
+  ) |>
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+    full_width = FALSE, position = "center"
+  ) |>
+  row_spec(
+    which(ame$p.value < 0.05),
+    bold = TRUE, color = "black", background = "#e6f2ff"
+  )
+```
+
+::: callout-tip
+**Interpretación directa (AME) con valores reales**
+
+-   **`educacion` (Posgrado − Sin secundaria):** **+48.2 pp**. Posgrado eleva la probabilidad de `>50K` en 48 puntos respecto de no terminar secundaria. El efecto más grande del modelo.
+-   **`educacion` (Universitaria − Sin secundaria):** **+40.5 pp**.
+-   **`educacion` (Terciaria/Univ. incompleta − Sin secundaria):** **+26.2 pp**.
+-   **`educacion` (Secundaria − Sin secundaria):** **+16.3 pp**.
+-   **`marital_simple` (married − single):** **+37.8 pp** promedio. La "prima del matrimonio" es enorme.
+-   **`age` y `hours_per_week`:** cada año/hora adicional suma **\~0.49 pp**. Pequeños individualmente, pero significativos y acumulativos.
+-   **`capital_gain` y `capital_loss`:** el AME está expresado **por dólar**, por eso por unidad cambia muy poco; altamente significativos (p ≈ 3.65e-269 para capital_gain). Su efecto sustantivo se aprecia en saltos grandes.
+-   **`sex` (Male − Female):** **-0.07 pp, p = 0.928, NO significativo**. Hay que destacar que el AME promedio del sexo es prácticamente cero. **No quiere decir que el sexo no importe**, sino que los efectos opuestos del sexo se cancelan al promediar: en solteros, ser hombre aumenta las chances; en casados, ser hombre las reduce ligeramente. La interacción esconde toda la dinámica. La visualizaremos con `plot_predictions`.
+:::
+
+# Forest plot de Odds Ratios- Modelo 2
+
+Se muestran los OR del Modelo 2 con **intervalos de confianza graduados** a 80%, 95% y 99%. Calculamos los intervalos manualmente desde `std.error` y los presentamos en **escala logarítmica** en X (clave: hace que "la mitad de chances" quede tan lejos del 1 como "el doble"). Línea de referencia en `OR = 1`.
+
+```{r}
+#| label: fig-forest-plot
+#| fig-width: 13
+#| fig-height: 8
+
+df_plot_or <- broom::tidy(modelo_int) |>
+  filter(term != "(Intercept)") |>
+  mutate(
+    lo_80 = estimate - qnorm(0.90)  * std.error, hi_80 = estimate + qnorm(0.90)  * std.error,
+    lo_95 = estimate - qnorm(0.975) * std.error, hi_95 = estimate + qnorm(0.975) * std.error,
+    lo_99 = estimate - qnorm(0.995) * std.error, hi_99 = estimate + qnorm(0.995) * std.error,
+    across(c(estimate, starts_with("lo_"), starts_with("hi_")), exp),
+    term_clean = case_match(
+      term,
+      "age"                                  ~ "Edad (años)",
+      "hours_per_week"                       ~ "Horas semanales",
+      "log1p(capital_gain)"                  ~ "log1p(Capital gain)",
+      "log1p(capital_loss)"                  ~ "log1p(Capital loss)",
+      "educacionSecundaria"                  ~ "Edu: Secundaria",
+      "educacionTerciaria/Univ. incompleta"  ~ "Edu: Terciaria/Univ. inc.",
+      "educacionUniversitaria"               ~ "Edu: Universitaria",
+      "educacionPosgrado"                    ~ "Edu: Posgrado",
+      "sexMale"                              ~ "Sexo: Hombre (vs Mujer)",
+      "marital_simplemarried"                ~ "Casado (vs Soltero)",
+      "sexMale:marital_simplemarried"        ~ "Interacción: Hombre × Casado",
+      .default = term
+    )
+  )
+
+ggplot(df_plot_or, aes(y = reorder(term_clean, estimate), x = estimate)) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "gray40", linewidth = 1) +
+  geom_linerange(aes(xmin = lo_99, xmax = hi_99), color = "#74ADD1", linewidth = 1.5) +
+  geom_linerange(aes(xmin = lo_95, xmax = hi_95), color = "#4575B4", linewidth = 3.5) +
+  geom_linerange(aes(xmin = lo_80, xmax = hi_80), color = "#313695", linewidth = 6) +
+  geom_point(color = "#D73027", size = 4) +
+  scale_x_log10() +
+  labs(
+    title = "Determinantes de la probabilidad de altos ingresos (>50K) — Odds Ratios",
+    subtitle = "Barras de error graduadas: 80% (gruesa), 95% (media), 99% (fina)",
+    x = "Odds Ratio (escala logarítmica)", y = NULL,
+    caption = "Si la barra cruza la línea punteada (OR = 1), el efecto no es significativo a ese nivel."
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    axis.text.y = element_text(face = "bold", size = 12)
+  )
+```
+
+::: callout-note
+**Lectura del forest plot**
+
+-   **Educación**: gradiente monótono perfectamente representado, culminando en `Posgrado` con OR ≈ 29.
+-   **`Casado (vs Soltero)`** (OR ≈ 23): efecto del matrimonio entre **mujeres**. Enorme.
+-   **`Sexo: Hombre (vs Mujer)`** (OR ≈ 2.14): efecto del sexo entre **solteros**.
+-   **`Interacción: Hombre × Casado`** (OR ≈ 0.33): único predictor a la **izquierda** de OR = 1. La prima del matrimonio se atenúa en hombres.
+-   **Edad, horas, capital gain y capital loss** cerca del 1, con barras angostas: efectos pequeños por unidad pero **altamente significativos**.
+-   **Ningún coeficiente cruza el OR = 1 a ningún nivel de confianza** (80/95/99): inferencia muy robusta gracias al tamaño muestral (\~15.766 obs.).
 :::
