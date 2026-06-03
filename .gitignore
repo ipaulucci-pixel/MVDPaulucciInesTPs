@@ -5,3 +5,7 @@
 TP1/notebooks/*.html
 TP1/notebooks/*_files/
 *.udpipe
+
+# Archivos auxiliares de Quarto (cache y files de Render)
+TP3/notebooks/*_cache/
+TP3/notebooks/*_files/

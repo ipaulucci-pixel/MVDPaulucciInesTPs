@@ -32,4 +32,4 @@ Se aplica una **regresión logística binomial** para modelar la probabilidad de
 Archivos principales:
 - `TP3/data/adult_census_USA.csv`: dataset original.
 - `TP3/notebooks/census_income_usa.qmd`: notebook con el análisis completo.
-- `TP3/notebooks/census_income_usa.html`: render final.
+- `TP3/notebooks/census_income_usa.html: render final.
